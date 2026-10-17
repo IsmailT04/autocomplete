@@ -60,8 +60,8 @@ func main() {
 	queries := flag.Int("queries", 100_000, "number of lookups to time")
 	k := flag.Int("k", 10, "suggestions per lookup")
 	seed := flag.Uint64("seed", 1, "random seed for the query workload")
-	only := flag.String("impl", "sortedarray,trie/querytime,trie/precompute",
-		"comma-separated implementations to run (add radix/... once it's implemented)")
+	only := flag.String("impl", "sortedarray,trie/querytime,trie/precompute,radix/querytime,radix/precompute",
+		"comma-separated implementations to run")
 	csvPath := flag.String("csv", "", "also write results to this CSV file")
 	flag.Parse()
 
@@ -70,6 +70,7 @@ func main() {
 		log.Fatal(err)
 	}
 	entries := dataset.TopN(all, *size)
+	unique := len(all)
 	all = nil
 
 	var wordBytes int
@@ -78,6 +79,7 @@ func main() {
 	}
 	work := workload(entries, *queries, rand.New(rand.NewPCG(*seed, *seed)))
 
+	fmt.Printf("unique words after normalization=%d\n", unique)
 	fmt.Printf("words=%d  queries=%d  k=%d  seed=%d  %s %s/%s\n",
 		len(entries), len(work), *k, *seed, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	fmt.Printf("word bytes shared by all indexes (not counted below): %.1f MB\n\n", mb(uint64(wordBytes)))
