@@ -56,13 +56,17 @@ func TestSmall(t *testing.T) {
 		{"x", []string{}},
 		// TODO: empty prefix? k larger than matches? k = 0? Decide and add cases.
 	}
+	// One subtest per implementation, so each can be run on its own:
+	//   go test ./internal/suggest/ -run 'TestSmall/sortedarray' -v
 	for name, s := range implementations(small, k) {
-		for _, tt := range tests {
-			got := words(s.Suggest(tt.prefix, k))
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("%s: Suggest(%q) = %v, want %v", name, tt.prefix, got, tt.want)
+		t.Run(name, func(t *testing.T) {
+			for _, tt := range tests {
+				got := words(s.Suggest(tt.prefix, k))
+				if !slices.Equal(got, tt.want) {
+					t.Errorf("Suggest(%q) = %v, want %v", tt.prefix, got, tt.want)
+				}
 			}
-		}
+		})
 	}
 }
 
