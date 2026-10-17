@@ -1,0 +1,2 @@
+# Word lists are large; keep them out of git.
+*.txt
