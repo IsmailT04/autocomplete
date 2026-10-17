@@ -1,7 +1,9 @@
 package suggest_test
 
 import (
+	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 
 	"autocomplete/internal/suggest"
@@ -54,7 +56,11 @@ func TestSmall(t *testing.T) {
 		{"şe", []string{"şehir", "şeker"}},
 		{"istanbul", []string{"istanbul"}},
 		{"x", []string{}},
-		// TODO: empty prefix? k larger than matches? k = 0? Decide and add cases.
+		{"", []string{"istanbul", "istiyorum", "şehir"}}, // empty prefix: best words overall
+		{"iste", []string{"iste", "istemek"}},            // prefix that is itself a word
+		{"istem", []string{"istemek"}},                   // ends in the middle of a radix edge
+		{"istx", []string{}},                             // diverges in the middle of a radix edge
+		{"istanbulx", []string{}},                        // longer than any word
 	}
 	// One subtest per implementation, so each can be run on its own:
 	//   go test ./internal/suggest/ -run 'TestSmall/sortedarray' -v
@@ -70,6 +76,70 @@ func TestSmall(t *testing.T) {
 	}
 }
 
-// TODO: TestAgainstBruteForce — load a sample of the real dataset, write a
-// dead-simple brute-force Suggest (scan everything), and check every
-// implementation agrees with it on many random prefixes.
+// TestK checks k values other than the one the index was built with.
+func TestK(t *testing.T) {
+	const built = 3
+	for name, s := range implementations(small, built) {
+		t.Run(name, func(t *testing.T) {
+			if got := s.Suggest("is", 0); len(got) != 0 {
+				t.Errorf("k=0: got %v, want nothing", words(got))
+			}
+			// More than the precomputed lists hold: must fall back to a full search.
+			want := []string{"istanbul", "istiyorum", "iste", "istemek", "is"}
+			if got := words(s.Suggest("is", 20)); !slices.Equal(got, want) {
+				t.Errorf("k=20: got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// bruteForce is the reference answer: scan every word.
+func bruteForce(entries []suggest.Entry, prefix string, k int) []suggest.Entry {
+	var out []suggest.Entry
+	for _, e := range entries {
+		if strings.HasPrefix(e.Word, prefix) {
+			out = append(out, e)
+		}
+	}
+	suggest.SortEntries(out)
+	return out[:min(k, len(out))]
+}
+
+// TestAgainstBruteForce compares every implementation to bruteForce on
+// generated words. The alphabet is small so words share many prefixes, and it
+// includes letters that start with the same UTF-8 byte (ı and ğ are both 0xC4…,
+// ç, ö and ü are all 0xC3…) to catch edges split in the middle of a character. Frequencies are drawn from a small range to force ties.
+func TestAgainstBruteForce(t *testing.T) {
+	alphabet := []rune("aıiğgşsçcöouü")
+	rng := rand.New(rand.NewPCG(1, 2))
+	seen := map[string]bool{}
+	var entries []suggest.Entry
+	for len(entries) < 5000 {
+		w := make([]rune, 1+rng.IntN(7))
+		for i := range w {
+			w[i] = alphabet[rng.IntN(len(alphabet))]
+		}
+		if word := string(w); !seen[word] {
+			seen[word] = true
+			entries = append(entries, suggest.Entry{Word: word, Freq: uint64(1 + rng.IntN(20))})
+		}
+	}
+
+	const k = 10
+	for name, s := range implementations(entries, k) {
+		t.Run(name, func(t *testing.T) {
+			for range 3000 {
+				w := []rune(entries[rng.IntN(len(entries))].Word)
+				prefix := string(w[:rng.IntN(len(w)+1)])
+				if rng.IntN(4) == 0 { // sometimes a prefix that may match nothing
+					prefix += string(alphabet[rng.IntN(len(alphabet))])
+				}
+				qk := []int{1, 5, k, 15}[rng.IntN(4)] // 15 > k exercises the precompute fallback
+				got, want := s.Suggest(prefix, qk), bruteForce(entries, prefix, qk)
+				if !slices.Equal(got, want) {
+					t.Fatalf("Suggest(%q, %d) = %v, want %v", prefix, qk, words(got), words(want))
+				}
+			}
+		})
+	}
+}
